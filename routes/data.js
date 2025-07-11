@@ -113,12 +113,29 @@ router.put('/subscribers/:id/status', authenticateToken, async (req, res) => {
       });
     }
 
-    const result = await runQuery(
-      'UPDATE manychat_data SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [status, id]
-    );
+    let query, params;
     
-    if (result.changes === 0) {
+    if (status === 'ARANDI') {
+      // Arandı durumu - tarih ve kullanıcı bilgisi ekle
+      query = `
+        UPDATE manychat_data 
+        SET status = $1, arama_tarihi = CURRENT_TIMESTAMP, arayan_kullanici = $2, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $3
+      `;
+      params = [status, req.user.username, id];
+    } else {
+      // Aranmadı durumu - sadece status güncelle
+      query = `
+        UPDATE manychat_data 
+        SET status = $1, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = $2
+      `;
+      params = [status, id];
+    }
+    
+    const result = await pool.query(query, params);
+    
+    if (result.rowCount === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'Kayıt bulunamadı' 
