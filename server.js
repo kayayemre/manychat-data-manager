@@ -4,7 +4,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 require('dotenv').config(); // Bu satır eklendi
 const { createTables, testConnection, runQuery, allQuery, getQuery } = require("./config/database");
-const ManyChatFetcher = require('./fetchManyChat'); // Veri çekme sistemi
+const ManyChatFetcher = require('./fetchManyChat'); // fetchManyChat.js dosyası
 
 const app = express();
 const port = process.env.PORT || 3000;
