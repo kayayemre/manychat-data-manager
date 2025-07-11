@@ -4,6 +4,13 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 require('dotenv').config(); // Bu satır eklendi
 const { createTables, testConnection, runQuery, allQuery, getQuery } = require("./config/database");
+const ManyChatFetcher = require('./fetchManyChat'); // Veri çekme sistemi
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+// ManyChat veri çekme instance
+let manyChatFetcher;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -144,12 +151,37 @@ app.get("/", (req, res) => {
   res.sendFile(__dirname + "/public/index.html");
 });
 
+// Manuel veri çekme endpoint
+app.get("/api/fetch-data", async (req, res) => {
+  try {
+    if (!manyChatFetcher) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Veri çekme sistemi başlatılmamış" 
+      });
+    }
+    
+    const result = await manyChatFetcher.manualFetch();
+    res.json({ 
+      success: true, 
+      message: "Veri çekme tamamlandı",
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({ 
     status: "OK", 
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    manychat_fetcher: manyChatFetcher ? "Active" : "Inactive"
   });
 });
 
@@ -201,6 +233,15 @@ async function startServer() {
       console.log(`🌐 URL: http://localhost:${port}`);
       console.log(`📊 Health Check: http://localhost:${port}/health`);
       console.log(`🔒 Güvenlik middleware'leri aktif`);
+      
+      // ManyChat veri çekme sistemini başlat
+      if (process.env.MANYCHAT_API_TOKEN) {
+        manyChatFetcher = new ManyChatFetcher();
+        manyChatFetcher.start();
+        console.log(`🔄 ManyChat veri çekme sistemi başlatıldı`);
+      } else {
+        console.log(`⚠️  ManyChat API token bulunamadı, veri çekme devre dışı`);
+      }
     });
     
   } catch (error) {
