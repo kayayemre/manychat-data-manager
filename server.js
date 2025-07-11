@@ -1,33 +1,27 @@
+require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-require('dotenv').config(); // Bu satır eklendi
 const { createTables, testConnection, runQuery, allQuery, getQuery } = require("./config/database");
-const ManyChatFetcher = require('./fetchManyChat'); // fetchManyChat.js dosyası
 
-const app = express();
-const port = process.env.PORT || 3000;
+const myApp = express();
+const serverPort = process.env.PORT || 3000;
 
 // ManyChat veri çekme instance
 let manyChatFetcher;
-
-const app = express();
-const port = process.env.PORT || 3000;
 
 // Auto Migration Function
 async function autoMigrate() {
   try {
     console.log('🔄 Otomatik migration kontrol ediliyor...');
     
-    // Users tablosunda role kolonu var mı kontrol et
     const tableInfo = await allQuery("PRAGMA table_info(users)");
     const hasRoleColumn = tableInfo.some(column => column.name === 'role');
 
     if (!hasRoleColumn && tableInfo.length > 0) {
       console.log('📝 Production migration başlatılıyor...');
       
-      // Yeni users tablosu oluştur
       await runQuery(`
         CREATE TABLE users_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +32,6 @@ async function autoMigrate() {
         )
       `);
 
-      // Eski verileri kopyala
       const oldUsers = await allQuery("SELECT * FROM users");
       
       for (const user of oldUsers) {
@@ -49,14 +42,12 @@ async function autoMigrate() {
         `, [user.id, user.username, user.password, role, user.created_at]);
       }
 
-      // Eski tabloyu sil ve yeni tabloyu isimlendir
       await runQuery("DROP TABLE users");
       await runQuery("ALTER TABLE users_new RENAME TO users");
       
       console.log('✅ Users tablosu otomatik güncellendi');
     }
 
-    // Status logs tablosunu kontrol et
     const tablesResult = await allQuery(`
       SELECT name FROM sqlite_master 
       WHERE type='table' AND name='status_logs'
@@ -87,13 +78,13 @@ async function autoMigrate() {
 }
 
 // Security middleware
-app.use(helmet({
+myApp.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      scriptSrcAttr: ["'unsafe-inline'"], // Bu satırı ekledik
+      scriptSrcAttr: ["'unsafe-inline'"],
       fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
@@ -105,7 +96,7 @@ app.use(helmet({
 }));
 
 // CORS middleware
-app.use(cors({
+myApp.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://your-domain.com'] 
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
@@ -114,45 +105,45 @@ app.use(cors({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 dakika
-  max: 100, // IP başına maksimum istek
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: {
     error: "Çok fazla istek gönderildi, lütfen 15 dakika sonra tekrar deneyin."
   }
 });
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 dakika
-  max: 5, // IP başına maksimum giriş denemesi
+  windowMs: 15 * 60 * 1000,
+  max: 5,
   message: {
     error: "Çok fazla giriş denemesi, lütfen 15 dakika sonra tekrar deneyin."
   }
 });
 
-app.use(limiter);
-app.use('/api/auth/login', authLimiter);
+myApp.use(limiter);
+myApp.use('/api/auth/login', authLimiter);
 
 // Body parser middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+myApp.use(express.json({ limit: '10mb' }));
+myApp.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Statik dosyalar
-app.use(express.static("public"));
+myApp.use(express.static("public"));
 
 // Routes
 const authRoutes = require("./routes/auth");
 const dataRoutes = require("./routes/data");
 
-app.use("/api/auth", authRoutes);
-app.use("/api/data", dataRoutes);
+myApp.use("/api/auth", authRoutes);
+myApp.use("/api/data", dataRoutes);
 
 // Ana route
-app.get("/", (req, res) => {
+myApp.get("/", (req, res) => {
   res.sendFile(__dirname + "/public/index.html");
 });
 
 // Manuel veri çekme endpoint
-app.get("/api/fetch-data", async (req, res) => {
+myApp.get("/api/fetch-data", async (req, res) => {
   try {
     if (!manyChatFetcher) {
       return res.status(500).json({ 
@@ -176,7 +167,7 @@ app.get("/api/fetch-data", async (req, res) => {
 });
 
 // Health check endpoint
-app.get("/health", (req, res) => {
+myApp.get("/health", (req, res) => {
   res.json({ 
     status: "OK", 
     timestamp: new Date().toISOString(),
@@ -186,7 +177,7 @@ app.get("/health", (req, res) => {
 });
 
 // 404 handler
-app.use((req, res) => {
+myApp.use((req, res) => {
   res.status(404).json({ 
     success: false, 
     message: "Endpoint bulunamadı" 
@@ -194,7 +185,7 @@ app.use((req, res) => {
 });
 
 // Error handler
-app.use((err, req, res, next) => {
+myApp.use((err, req, res, next) => {
   console.error("Server error:", err);
   res.status(500).json({ 
     success: false, 
@@ -218,27 +209,26 @@ process.on('SIGINT', () => {
 // Sunucuyu başlat
 async function startServer() {
   try {
-    // Veritabanı bağlantısını test et
     await testConnection();
-    
-    // Otomatik migration
     await autoMigrate();
-    
-    // Tabloları oluştur
     await createTables();
     
-    // Sunucuyu başlat
-    app.listen(port, () => {
-      console.log(`✅ Sunucu ${port} portunda çalışıyor`);
-      console.log(`🌐 URL: http://localhost:${port}`);
-      console.log(`📊 Health Check: http://localhost:${port}/health`);
+    myApp.listen(serverPort, () => {
+      console.log(`✅ Sunucu ${serverPort} portunda çalışıyor`);
+      console.log(`🌐 URL: http://localhost:${serverPort}`);
+      console.log(`📊 Health Check: http://localhost:${serverPort}/health`);
       console.log(`🔒 Güvenlik middleware'leri aktif`);
       
       // ManyChat veri çekme sistemini başlat
       if (process.env.MANYCHAT_API_TOKEN) {
-        manyChatFetcher = new ManyChatFetcher();
-        manyChatFetcher.start();
-        console.log(`🔄 ManyChat veri çekme sistemi başlatıldı`);
+        try {
+          const ManyChatFetcher = require('./fetchManyChat');
+          manyChatFetcher = new ManyChatFetcher();
+          manyChatFetcher.start();
+          console.log(`🔄 ManyChat veri çekme sistemi başlatıldı`);
+        } catch (error) {
+          console.log(`⚠️  ManyChat fetcher yüklenemedi:`, error.message);
+        }
       } else {
         console.log(`⚠️  ManyChat API token bulunamadı, veri çekme devre dışı`);
       }
