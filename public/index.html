@@ -699,6 +699,9 @@
                     <div class="auto-refresh-info">
                         <i class="fas fa-sync-alt" style="animation: spin 2s linear infinite;"></i>
                         <span>Veriler 4 dakikada bir otomatik güncelleniyor</span>
+                        <button class="btn" style="margin-left: 15px; padding: 8px 16px; font-size: 0.9em;" id="fetchDataBtn">
+                            <i class="fas fa-download"></i> Manuel Veri Çek
+                        </button>
                     </div>
 
                     <!-- Kontroller -->
@@ -803,7 +806,6 @@
         const itemsPerPage = 20;
         let authToken = localStorage.getItem('authToken');
         let searchTimeout;
-        let userRole = localStorage.getItem('userRole');
 
         // Sayfa yüklendiğinde
         document.addEventListener('DOMContentLoaded', function() {
@@ -820,6 +822,9 @@
                     showTab(tabName, this);
                 });
             });
+
+            // Manuel veri çekme butonu
+            document.getElementById('fetchDataBtn').addEventListener('click', fetchDataManually);
             
             // Yeni kullanıcı ekleme form handler
             const addUserForm = document.getElementById('addUserForm');
@@ -883,10 +888,9 @@
                 
                 if (data.success) {
                     authToken = data.token;
-                    userRole = data.user.role;
                     localStorage.setItem('authToken', authToken);
                     localStorage.setItem('username', data.user.username);
-                    localStorage.setItem('userRole', userRole);
+                    localStorage.setItem('userRole', data.user.role);
                     showDashboard();
                 } else {
                     showAlert('loginAlert', data.message, 'error');
@@ -924,18 +928,13 @@
             document.getElementById('welcomeUser').textContent = 'Hoşgeldin, ' + username + 
                 (currentUserRole === 'admin' ? ' (Admin)' : '');
             
-            // Debug için console'a yazdır
-            console.log('Dashboard açılıyor - Kullanıcı rolü:', currentUserRole);
-            
             // Admin değilse Kullanıcı Yönetimi sekmesini gizle
             const userManagementTab = document.getElementById('userManagementTab');
             if (currentUserRole !== 'admin') {
-                console.log('Admin değil, kullanıcı yönetimi gizleniyor');
                 if (userManagementTab) {
                     userManagementTab.style.display = 'none';
                 }
             } else {
-                console.log('Admin kullanıcı, kullanıcı yönetimi gösteriliyor');
                 if (userManagementTab) {
                     userManagementTab.style.display = 'block';
                 }
@@ -955,7 +954,7 @@
                 console.log('🔄 Otomatik veri yenileme...');
                 loadStats();
                 loadSubscribers();
-            }, 240000); // 4 dakika = 240000 ms
+            }, 240000);
         }
 
         // Giriş ekranını göster
@@ -970,7 +969,6 @@
             localStorage.removeItem('username');
             localStorage.removeItem('userRole');
             authToken = null;
-            userRole = null;
             showLogin();
         }
 
@@ -1048,7 +1046,6 @@
                 });
                 
                 const data = await response.json();
-                console.log('Kullanıcı listesi:', data);
                 
                 if (data.success) {
                     const userListContainer = document.getElementById('userListContainer');
@@ -1090,8 +1087,6 @@
                 return;
             }
             
-            console.log('Kullanıcı silme isteği:', userId, username);
-            
             try {
                 const response = await fetch(`/api/auth/users/${userId}`, {
                     method: 'DELETE',
@@ -1100,9 +1095,7 @@
                     }
                 });
                 
-                console.log('Response status:', response.status);
                 const data = await response.json();
-                console.log('Response data:', data);
                 
                 if (data.success) {
                     showAlert('dashboardAlert', data.message, 'success');
@@ -1111,7 +1104,6 @@
                     showAlert('dashboardAlert', data.message, 'error');
                 }
             } catch (error) {
-                console.error('Kullanıcı silme fetch hatası:', error);
                 showAlert('dashboardAlert', 'Kullanıcı silme hatası: ' + error.message, 'error');
             }
         }
@@ -1192,7 +1184,7 @@
             });
         }
 
-        // Sayfalama butonları
+        // Sayfalama butonları - Event listener'lı versiyon
         function renderPagination(pagination) {
             const paginationContainer = document.getElementById('pagination');
             paginationContainer.innerHTML = '';
@@ -1205,22 +1197,24 @@
             const firstBtn = document.createElement('button');
             firstBtn.innerHTML = '<i class="fas fa-angle-double-left"></i> İlk';
             firstBtn.disabled = pagination.page === 1;
-            firstBtn.onclick = () => {
-                currentPage = 1;
-                loadSubscribers();
-            };
+            firstBtn.addEventListener('click', () => {
+                if (pagination.page > 1) {
+                    currentPage = 1;
+                    loadSubscribers();
+                }
+            });
             navButtons.appendChild(firstBtn);
             
             // Önceki sayfa
             const prevBtn = document.createElement('button');
             prevBtn.innerHTML = '<i class="fas fa-angle-left"></i> Önceki';
             prevBtn.disabled = pagination.page === 1;
-            prevBtn.onclick = () => {
+            prevBtn.addEventListener('click', () => {
                 if (pagination.page > 1) {
                     currentPage = pagination.page - 1;
                     loadSubscribers();
                 }
-            };
+            });
             navButtons.appendChild(prevBtn);
             
             paginationContainer.appendChild(navButtons);
@@ -1236,10 +1230,10 @@
             if (startPage > 1) {
                 const page1Btn = document.createElement('button');
                 page1Btn.textContent = '1';
-                page1Btn.onclick = () => {
+                page1Btn.addEventListener('click', () => {
                     currentPage = 1;
                     loadSubscribers();
-                };
+                });
                 pageNumbers.appendChild(page1Btn);
                 
                 if (startPage > 2) {
@@ -1255,10 +1249,10 @@
                 const pageBtn = document.createElement('button');
                 pageBtn.textContent = i;
                 pageBtn.className = i === pagination.page ? 'active' : '';
-                pageBtn.onclick = () => {
+                pageBtn.addEventListener('click', () => {
                     currentPage = i;
                     loadSubscribers();
-                };
+                });
                 pageNumbers.appendChild(pageBtn);
             }
             
@@ -1273,10 +1267,10 @@
                 
                 const lastPageBtn = document.createElement('button');
                 lastPageBtn.textContent = pagination.totalPages;
-                lastPageBtn.onclick = () => {
+                lastPageBtn.addEventListener('click', () => {
                     currentPage = pagination.totalPages;
                     loadSubscribers();
-                };
+                });
                 pageNumbers.appendChild(lastPageBtn);
             }
             
@@ -1290,29 +1284,29 @@
             const nextBtn = document.createElement('button');
             nextBtn.innerHTML = 'Sonraki <i class="fas fa-angle-right"></i>';
             nextBtn.disabled = pagination.page === pagination.totalPages;
-            nextBtn.onclick = () => {
+            nextBtn.addEventListener('click', () => {
                 if (pagination.page < pagination.totalPages) {
                     currentPage = pagination.page + 1;
                     loadSubscribers();
                 }
-            };
+            });
             rightNavButtons.appendChild(nextBtn);
             
             // Son sayfa
             const lastBtn = document.createElement('button');
             lastBtn.innerHTML = 'Son <i class="fas fa-angle-double-right"></i>';
             lastBtn.disabled = pagination.page === pagination.totalPages;
-            lastBtn.onclick = () => {
+            lastBtn.addEventListener('click', () => {
                 currentPage = pagination.totalPages;
                 loadSubscribers();
-            };
+            });
             rightNavButtons.appendChild(lastBtn);
             
             paginationContainer.appendChild(rightNavButtons);
             
             // Sayfa bilgisi
             const pageInfo = document.createElement('div');
-            pageInfo.style.cssText = 'font-size: 14px; color: #666; margin-top: 10px;';
+            pageInfo.style.cssText = 'font-size: 14px; color: #666; margin-top: 10px; text-align: center;';
             pageInfo.textContent = `Sayfa ${pagination.page} / ${pagination.totalPages} (Toplam ${pagination.total} kayıt)`;
             paginationContainer.appendChild(pageInfo);
         }
@@ -1345,6 +1339,41 @@
             }
         }
 
+        // Manuel veri çekme
+        async function fetchDataManually() {
+            const btn = document.getElementById('fetchDataBtn');
+            const originalText = btn.innerHTML;
+            
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Çekiliyor...';
+            
+            try {
+                const response = await fetch('/api/fetch-data', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('dashboardAlert', 
+                        `Veri çekme tamamlandı: ${data.data.newCount} yeni, ${data.data.updatedCount} güncellendi`, 
+                        'success'
+                    );
+                    loadStats();
+                    loadSubscribers();
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('dashboardAlert', 'Veri çekme hatası: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
         // Sekme değiştirme
         function showTab(tabName, clickedElement) {
             // Tüm tab content'leri gizle
@@ -1363,12 +1392,6 @@
             // Seçilen button'ı active yap
             if (clickedElement) {
                 clickedElement.classList.add('active');
-            } else {
-                // Event objesi yoksa manuel bulalım
-                const targetBtn = document.querySelector(`[onclick*="${tabName}"]`);
-                if (targetBtn) {
-                    targetBtn.classList.add('active');
-                }
             }
             
             // Kullanıcı yönetimi sekmesine geçildiğinde kullanıcı listesini yükle
