@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ManyChat Veri Yönetimi</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+            width: 100%;
+            max-width: 1200px;
+            min-height: 600px;
+        }
+        
+        .login-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 40px;
+            text-align: center;
+        }
+        
+        .login-section h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        
+        .login-section p {
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e1e1;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .dashboard {
+            display: none;
+            padding: 0;
+        }
+        
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .dashboard-header h1 {
+            font-size: 1.8em;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .logout-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .dashboard-content {
+            padding: 30px 40px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+        
+        .stat-card h3 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card p {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e1e1;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        
+        .filter-select {
+            padding: 12px;
+            border: 2px solid #e1e1e1;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        
+        .data-table {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .table-header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #e1e1e1;
+        }
+        
+        .table-content {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e1e1e1;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .status-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .status-arandi {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-aranmadi {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-badge:hover {
+            transform: scale(1.05);
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .pagination button {
+            padding: 8px 15px;
+            border: 1px solid #e1e1e1;
+            border-radius: 5px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .pagination button:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .pagination button.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .loading i {
+            font-size: 2em;
+            color: #667eea;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .row-arandi {
+            background-color: #d4edda !important;
+        }
+
+        .row-aranmadi {
+            background-color: #f8d7da !important;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e1e1e1;
+        }
+        
+        .tab-button {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .user-form {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            max-width: 500px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                margin: 20px;
+                border-radius: 15px;
+            }
+            
+            .login-section {
+                padding: 40px 20px;
+            }
+            
+            .dashboard-header {
+                padding: 15px 20px;
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            
+            .dashboard-content {
+                padding: 20px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .search-box {
+                min-width: auto;
+            }
+            
+            th, td {
+                padding: 10px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Giriş Bölümü -->
+        <div id="loginSection" class="login-section">
+            <h1><i class="fas fa-comments"></i> ManyChat Veri Yönetimi</h1>
+            <p>ManyChat verilerinizi yönetmek için giriş yapın</p>
+            
+            <div id="loginAlert"></div>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Kullanıcı Adı</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Şifre</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <button type="submit" class="btn" id="loginBtn">
+                    <i class="fas fa-sign-in-alt"></i> Giriş Yap
+                </button>
+            </form>
+        </div>
+
+        <!-- Dashboard Bölümü -->
+        <div id="dashboard" class="dashboard">
+            <div class="dashboard-header">
+                <h1><i class="fas fa-chart-bar"></i> Veri Yönetimi Paneli</h1>
+                <div class="user-info">
+                    <span id="welcomeUser"></span>
+                    <button class="logout-btn" id="logoutBtn">
+                        <i class="fas fa-sign-out-alt"></i> Çıkış
+                    </button>
+                </div>
+            </div>
+
+            <div class="dashboard-content">
+                <div id="dashboardAlert"></div>
+                
+                <!-- Sekmeler -->
+                <div class="tabs">
+                    <button class="tab-button active" onclick="showTab('data')">
+                        <i class="fas fa-list"></i> Veri Listesi
+                    </button>
+                    <button class="tab-button" onclick="showTab('users')" id="userManagementTab">
+                        <i class="fas fa-users"></i> Kullanıcı Yönetimi
+                    </button>
+                </div>
+
+                <!-- Veri Listesi Sekmesi -->
+                <div id="dataTab" class="tab-content active">
+                
+                <!-- İstatistikler -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3 id="totalSubscribers">-</h3>
+                        <p>Toplam Abone</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="arandiCount">-</h3>
+                        <p>Arandı</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="aranmadiCount">-</h3>
+                        <p>Aranmadı</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="newToday">-</h3>
+                        <p>Bugün Eklenen</p>
+                    </div>
+                </div>
+
+                <!-- Otomatik Güncelleme Bilgisi -->
+                <div style="text-align: center; margin-bottom: 20px; color: #666;">
+                    <i class="fas fa-sync-alt" style="animation: spin 2s linear infinite;"></i>
+                    <small>Veriler 4 dakikada bir otomatik güncelleniyor</small>
+                </div>
+
+                <!-- Kontroller -->
+                <div class="controls">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Ad, soyad veya WhatsApp ara...">
+                    </div>
+                    <select id="statusFilter" class="filter-select">
+                        <option value="">Tüm Durumlar</option>
+                        <option value="ARANDI">Arandı</option>
+                        <option value="ARANMADI">Aranmadı</option>
+                    </select>
+                </div>
+
+                <!-- Loading -->
+                <div id="loading" class="loading">
+                    <i class="fas fa-spinner"></i>
+                    <p>Veriler yükleniyor...</p>
+                </div>
+
+                <!-- Veri Tablosu -->
+                <div class="data-table">
+                    <div class="table-header">
+                        <h3>Abone Listesi</h3>
+                    </div>
+                    <div class="table-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Ad Soyad</th>
+                                    <th>WhatsApp</th>
+                                    <th>Otel Adı</th>
+                                    <th>Konaklama</th>
+                                    <th>Fiyat</th>
+                                    <th>Durum</th>
+                                    <th>Arama Bilgisi</th>
+                                    <th>Çekilme Tarihi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dataTableBody">
+                                <!-- Veriler buraya gelecek -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sayfalama -->
+                <div id="pagination" class="pagination">
+                    <!-- Sayfalama butonları buraya gelecek -->
+                </div>
+                </div>
+
+                <!-- Kullanıcı Yönetimi Sekmesi -->
+                <div id="usersTab" class="tab-content">
+                    <div class="user-form">
+                        <h3><i class="fas fa-user-plus"></i> Yeni Kullanıcı Ekle</h3>
+                        <br>
+                        <form id="addUserForm">
+                            <div class="form-group">
+                                <label for="newUsername">Kullanıcı Adı</label>
+                                <input type="text" id="newUsername" name="username" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="newPassword">Şifre</label>
+                                <input type="password" id="newPassword" name="password" required>
+                            </div>
+                            
+                            <button type="submit" class="btn">
+                                <i class="fas fa-user-plus"></i> Kullanıcı Ekle
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global değişkenler
+        let currentPage = 1;
+        let totalPages = 1;
+        const itemsPerPage = 20;
+        let authToken = localStorage.getItem('authToken');
+        let searchTimeout;
+
+        // Sayfa yüklendiğinde
+        document.addEventListener('DOMContentLoaded', function() {
+            if (authToken) {
+                showDashboard();
+            } else {
+                showLogin();
+            }
+            
+            // Yeni kullanıcı ekleme form handler
+            const addUserForm = document.getElementById('addUserForm');
+            if (addUserForm) {
+                addUserForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const username = document.getElementById('newUsername').value;
+                    const password = document.getElementById('newPassword').value;
+                    
+                    try {
+                        const response = await fetch('/api/auth/register', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${authToken}`
+                            },
+                            body: JSON.stringify({ username, password })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            showAlert('dashboardAlert', 'Kullanıcı başarıyla eklendi', 'success');
+                            document.getElementById('newUsername').value = '';
+                            document.getElementById('newPassword').value = '';
+                        } else {
+                            showAlert('dashboardAlert', data.message, 'error');
+                        }
+                    } catch (error) {
+                        showAlert('dashboardAlert', 'Kullanıcı ekleme hatası', 'error');
+                    }
+                });
+            }
+        });
+
+        // Giriş formu
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('loginBtn');
+            
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Giriş yapılıyor...';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('username', data.user.username);
+                    localStorage.setItem('userRole', data.user.role || 'user');
+                    showDashboard();
+                } else {
+                    showAlert('loginAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('loginAlert', 'Bağlantı hatası', 'error');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Giriş Yap';
+            }
+        });
+
+        // Arama ve filtreleme
+        document.getElementById('searchInput').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                loadSubscribers();
+            }, 500);
+        });
+
+        document.getElementById('statusFilter').addEventListener('change', function() {
+            currentPage = 1;
+            loadSubscribers();
+        });
+
+        // Dashboard göster
+        function showDashboard() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('welcomeUser').textContent = 'Hoşgeldin, ' + localStorage.getItem('username');
+            
+            // Admin değilse Kullanıcı Yönetimi sekmesini gizle
+            const userRole = localStorage.getItem('userRole');
+            if (userRole !== 'admin') {
+                const userManagementTab = document.getElementById('userManagementTab');
+                if (userManagementTab) {
+                    userManagementTab.style.display = 'none';
+                }
+            }
+            
+            // Logout button event listener
+            document.getElementById('logoutBtn').addEventListener('click', logout);
+            
+            loadStats();
+            loadSubscribers();
+            
+            // 4 dakikada bir otomatik yenileme
+            setInterval(() => {
+                console.log('🔄 Otomatik veri yenileme...');
+                loadStats();
+                loadSubscribers();
+            }, 240000); // 4 dakika = 240000 ms
+        }
+
+        // Giriş ekranını göster
+        function showLogin() {
+            document.getElementById('loginSection').style.display = 'flex';
+            document.getElementById('dashboard').style.display = 'none';
+        }
+
+        // Çıkış yap
+        function logout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('username');
+            localStorage.removeItem('userRole');
+            authToken = null;
+            showLogin();
+        }
+
+        // Alert göster
+        function showAlert(containerId, message, type) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        // İstatistikleri yükle
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/data/stats', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('totalSubscribers').textContent = data.data.totalSubscribers;
+                    document.getElementById('arandiCount').textContent = data.data.arandiCount;
+                    document.getElementById('aranmadiCount').textContent = data.data.aranmadiCount;
+                    document.getElementById('newToday').textContent = data.data.newToday;
+                }
+            } catch (error) {
+                console.error('İstatistik yükleme hatası:', error);
+            }
+        }
+
+        // Aboneleri yükle
+        async function loadSubscribers() {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            
+            try {
+                const search = document.getElementById('searchInput').value;
+                const status = document.getElementById('statusFilter').value;
+                
+                const params = new URLSearchParams({
+                    page: currentPage,
+                    limit: itemsPerPage,
+                    search: search,
+                    status: status
+                });
+                
+                const response = await fetch(`/api/data/subscribers?${params}`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderSubscribers(data.data);
+                    renderPagination(data.pagination);
+                    totalPages = data.pagination.totalPages;
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('dashboardAlert', 'Veri yükleme hatası', 'error');
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Aboneleri tabloya çiz
+        function renderSubscribers(subscribers) {
+            const tbody = document.getElementById('dataTableBody');
+            tbody.innerHTML = '';
+            
+            subscribers.forEach(subscriber => {
+                const row = document.createElement('tr');
+                row.className = `row-${subscriber.status.toLowerCase()}`;
+                
+                row.innerHTML = `
+                    <td>${(subscriber.first_name || '') + ' ' + (subscriber.last_name || '')}</td>
+                    <td>${subscriber.whatsapp_phone || '-'}</td>
+                    <td>${subscriber.otel_adi || '-'}</td>
+                    <td>${subscriber.conditions || '-'}</td>
+                    <td>${subscriber.cevap_fiyat1 || '-'}</td>
+                    <td>
+                        <span class="status-badge status-${subscriber.status.toLowerCase()}" 
+                              data-id="${subscriber.id}" data-status="${subscriber.status}">
+                            ${subscriber.status}
+                        </span>
+                    </td>
+                    <td>-</td>
+                    <td>${new Date(subscriber.created_at).toLocaleDateString('tr-TR')} ${new Date(subscriber.created_at).toLocaleTimeString('tr-TR')}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            // Tüm status badge'lere event listener ekle
+            document.querySelectorAll('.status-badge').forEach(badge => {
+                badge.addEventListener('click', function() {
+                    const id = this.getAttribute('data-id');
+                    const currentStatus = this.getAttribute('data-status');
+                    toggleStatus(id, currentStatus);
+                });
+            });
+        }
+
+        // Sayfalama butonları
+        function renderPagination(pagination) {
+            const paginationContainer = document.getElementById('pagination');
+            paginationContainer.innerHTML = '';
+            
+            // Önceki sayfa
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '‹ Önceki';
+            prevBtn.disabled = pagination.page === 1;
+            prevBtn.onclick = () => {
+                if (pagination.page > 1) {
+                    currentPage = pagination.page - 1;
+                    loadSubscribers();
+                }
+            };
+            paginationContainer.appendChild(prevBtn);
+            
+            // Sayfa numaraları
+            const startPage = Math.max(1, pagination.page - 2);
+            const endPage = Math.min(pagination.totalPages, pagination.page + 2);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.textContent = i;
+                pageBtn.className = i === pagination.page ? 'active' : '';
+                pageBtn.onclick = () => {
+                    currentPage = i;
+                    loadSubscribers();
+                };
+                paginationContainer.appendChild(pageBtn);
+            }
+            
+            // Sonraki sayfa
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Sonraki ›';
+            nextBtn.disabled = pagination.page === pagination.totalPages;
+            nextBtn.onclick = () => {
+                if (pagination.page < pagination.totalPages) {
+                    currentPage = pagination.page + 1;
+                    loadSubscribers();
+                }
+            };
+            paginationContainer.appendChild(nextBtn);
+        }
+
+        // Status değiştir
+        async function toggleStatus(id, currentStatus) {
+            const newStatus = currentStatus === 'ARANDI' ? 'ARANMADI' : 'ARANDI';
+            
+            try {
+                const response = await fetch(`/api/data/subscribers/${id}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    loadSubscribers();
+                    loadStats();
+                    showAlert('dashboardAlert', 'Durum başarıyla güncellendi', 'success');
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('dashboardAlert', 'Durum güncelleme hatası', 'error');
+            }
+        }
+
+        // Sekme değiştirme
+        function showTab(tabName) {
+            // Tüm tab content'leri gizle
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Tüm tab button'lardan active'i kaldır
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Seçilen tab'ı göster
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            // Seçilen button'ı active yap
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>
