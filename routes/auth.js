@@ -1,8 +1,15 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getQuery, runQuery } = require('../config/database');
+require('dotenv').config(); // Bu satır eklendi
+const { getQuery, runQuery, allQuery } = require('../config/database');
 const router = express.Router();
+
+// JWT Secret kontrolü
+if (!process.env.JWT_SECRET) {
+  console.error('❌ JWT_SECRET çevre değişkeni tanımlanmamış!');
+  process.exit(1);
+}
 
 // JWT token kontrolü middleware
 const authenticateToken = (req, res, next) => {
@@ -26,6 +33,26 @@ const authenticateToken = (req, res, next) => {
     req.user = user;
     next();
   });
+};
+
+// Admin kontrolü middleware
+const requireAdmin = async (req, res, next) => {
+  try {
+    const user = await getQuery('SELECT role FROM users WHERE id = ?', [req.user.userId]);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Bu işlem için admin yetkisi gerekli' 
+      });
+    }
+    next();
+  } catch (error) {
+    console.error('Admin kontrol hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Sunucu hatası' 
+    });
+  }
 };
 
 // Giriş yapma
@@ -59,10 +86,12 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user.id, username: user.username },
+      { userId: user.id, username: user.username, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
+
+    console.log('Giriş başarılı - Kullanıcı:', user.username, 'Role:', user.role); // Debug log
 
     res.json({
       success: true,
@@ -71,7 +100,7 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         username: user.username,
-        role: user.role || 'user'
+        role: user.role
       }
     });
 
@@ -85,23 +114,21 @@ router.post('/login', async (req, res) => {
 });
 
 // Yeni kullanıcı kaydetme (sadece admin yapabilir)
-router.post('/register', authenticateToken, async (req, res) => {
+router.post('/register', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { username, password } = req.body;
-    
-    // Admin kontrolü
-    const adminUser = await getQuery('SELECT role FROM users WHERE id = ?', [req.user.userId]);
-    if (!adminUser || adminUser.role !== 'admin') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Sadece admin kullanıcı ekleyebilir' 
-      });
-    }
+    const { username, password, role = 'user' } = req.body;
     
     if (!username || !password) {
       return res.status(400).json({ 
         success: false, 
         message: 'Kullanıcı adı ve şifre gerekli' 
+      });
+    }
+
+    if (!['admin', 'user'].includes(role)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Geçersiz rol. "admin" veya "user" olmalı' 
       });
     }
 
@@ -123,7 +150,10 @@ router.post('/register', authenticateToken, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    const result = await runQuery('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', [username, hashedPassword, 'user']);
+    const result = await runQuery(
+      'INSERT INTO users (username, password, role) VALUES (?, ?, ?)', 
+      [username, hashedPassword, role]
+    );
     
     res.status(201).json({
       success: true,
@@ -131,7 +161,7 @@ router.post('/register', authenticateToken, async (req, res) => {
       user: {
         id: result.lastID,
         username: username,
-        role: 'user'
+        role: role
       }
     });
 
@@ -140,6 +170,70 @@ router.post('/register', authenticateToken, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Sunucu hatası' 
+    });
+  }
+});
+
+// Kullanıcı listesi (sadece admin görebilir)
+router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const users = await allQuery(`
+      SELECT id, username, role, created_at 
+      FROM users 
+      ORDER BY created_at DESC
+    `);
+    
+    res.json({
+      success: true,
+      data: users
+    });
+
+  } catch (error) {
+    console.error('Kullanıcı listesi hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Sunucu hatası' 
+    });
+  }
+});
+
+// Kullanıcı silme (sadece admin yapabilir, kendini silemez)
+router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('Kullanıcı silme isteği - ID:', id, 'Requesting User ID:', req.user.userId);
+    
+    if (parseInt(id) === req.user.userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Kendi hesabınızı silemezsiniz' 
+      });
+    }
+
+    const user = await getQuery('SELECT username FROM users WHERE id = ?', [id]);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Kullanıcı bulunamadı' 
+      });
+    }
+
+    // Kullanıcıyı sil
+    const result = await runQuery('DELETE FROM users WHERE id = ?', [id]);
+    console.log('Silme sonucu:', result);
+    
+    res.json({
+      success: true,
+      message: `${user.username} kullanıcısı başarıyla silindi`
+    });
+
+  } catch (error) {
+    console.error('Kullanıcı silme hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Sunucu hatası: ' + error.message 
     });
   }
 });

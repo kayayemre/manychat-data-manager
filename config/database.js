@@ -31,41 +31,66 @@ async function testConnection() {
 async function createTables() {
   return new Promise(async (resolve, reject) => {
     try {
-      // Kullanıcılar tablosu
+      // Users tablosunda role kolonu var mı kontrol et
+      const tableInfo = await allQuery("PRAGMA table_info(users)");
+      const hasRoleColumn = tableInfo.some(column => column.name === 'role');
+
+      if (!hasRoleColumn && tableInfo.length > 0) {
+        console.log('⚠️  Mevcut veritabanı tespit edildi ancak role kolonu eksik!');
+        console.log('🔧 Lütfen migration script çalıştırın: node migrate.js');
+        throw new Error('Veritabanı migration gerekli. "node migrate.js" komutunu çalıştırın.');
+      }
+
+      // Kullanıcılar tablosu - role alanı eklendi
       await runQuery(`
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           username TEXT UNIQUE NOT NULL,
           password TEXT NOT NULL,
+          role TEXT DEFAULT 'user' CHECK(role IN ('admin', 'user')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // ManyChat verileri tablosu
-await runQuery(`
-  CREATE TABLE IF NOT EXISTS manychat_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subscriber_id TEXT NOT NULL UNIQUE,
-    first_name TEXT,
-    last_name TEXT,
-    profile_pic TEXT,
-    locale TEXT,
-    timezone TEXT,
-    gender TEXT,
-    phone TEXT,
-    email TEXT,
-    whatsapp_phone TEXT,
-    subscribed_at DATETIME,
-    last_interaction DATETIME,
-    status TEXT DEFAULT 'ARANMADI',
-    otel_adi TEXT,
-    conditions TEXT,
-    cevap_fiyat1 TEXT,
-    raw_data TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+      // ManyChat verileri tablosu - güncellendi
+      await runQuery(`
+        CREATE TABLE IF NOT EXISTS manychat_data (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subscriber_id TEXT NOT NULL UNIQUE,
+          first_name TEXT,
+          last_name TEXT,
+          profile_pic TEXT,
+          locale TEXT,
+          timezone TEXT,
+          gender TEXT,
+          phone TEXT,
+          email TEXT,
+          whatsapp_phone TEXT,
+          subscribed_at DATETIME,
+          last_interaction DATETIME,
+          status TEXT DEFAULT 'ARANMADI',
+          otel_adi TEXT,
+          conditions TEXT,
+          cevap_fiyat1 TEXT,
+          raw_data TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Status log tablosu - yeni
+      await runQuery(`
+        CREATE TABLE IF NOT EXISTS status_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          subscriber_id INTEGER NOT NULL,
+          user_id INTEGER NOT NULL,
+          old_status TEXT,
+          new_status TEXT,
+          changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (subscriber_id) REFERENCES manychat_data(id),
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+      `);
 
       // Trigger oluştur (SQLite'da biraz farklı)
       await runQuery(`
@@ -77,16 +102,21 @@ await runQuery(`
         END;
       `);
 
-      // Varsayılan kullanıcı oluştur
-      const bcrypt = require('bcryptjs');
-      const hashedPassword = await bcrypt.hash('admin123', 10);
+      // Varsayılan admin kullanıcı oluştur (sadece tablo boşsa)
+      const userCount = await getQuery("SELECT COUNT(*) as count FROM users");
       
-      await runQuery(`
-        INSERT OR IGNORE INTO users (username, password) 
-        VALUES (?, ?)
-      `, ['admin', hashedPassword]);
+      if (userCount.count === 0) {
+        const bcrypt = require('bcryptjs');
+        const hashedPassword = await bcrypt.hash('admin123', 10);
+        
+        await runQuery(`
+          INSERT INTO users (username, password, role) 
+          VALUES (?, ?, ?)
+        `, ['admin', hashedPassword, 'admin']);
 
-      console.log('✅ Varsayılan kullanıcı oluşturuldu: admin/admin123');
+        console.log('✅ Varsayılan admin kullanıcı oluşturuldu: admin/admin123');
+      }
+      
       console.log('✅ Tüm tablolar hazır');
       resolve();
       
@@ -136,6 +166,13 @@ function getQuery(sql, params = []) {
   });
 }
 
+// Türkiye saatini al
+function getTurkeyTime() {
+  const now = new Date();
+  const turkeyTime = new Date(now.toLocaleString("en-US", {timeZone: "Europe/Istanbul"}));
+  return turkeyTime.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // Veritabanını kapat
 function closeDatabase() {
   return new Promise((resolve) => {
@@ -157,5 +194,6 @@ module.exports = {
   runQuery,
   allQuery,
   getQuery,
+  getTurkeyTime,
   closeDatabase
 };
