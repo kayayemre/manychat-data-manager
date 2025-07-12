@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const path = require('path');
 require('dotenv').config();
 
 // Rate limiting middleware'leri import et
@@ -23,8 +24,16 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
+// Static dosyalar (public klasörü)
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Genel rate limiting (tüm istekler için)
 app.use(generalRateLimit);
+
+// Ana sayfa route'u - ÖNEMLİ!
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // JWT token doğrulama middleware
 const authenticateToken = (req, res, next) => {
@@ -52,21 +61,25 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// Routes
-
 // Login endpoint
-app.post('/api/login', async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     
     const user = await getQuery('SELECT * FROM users WHERE username = ?', [username]);
     if (!user) {
-      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Kullanıcı adı veya şifre hatalı' 
+      });
     }
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Kullanıcı adı veya şifre hatalı' 
+      });
     }
 
     const token = jwt.sign(
@@ -76,6 +89,7 @@ app.post('/api/login', async (req, res) => {
     );
 
     res.json({ 
+      success: true,
       token, 
       user: { 
         id: user.id, 
@@ -84,15 +98,78 @@ app.post('/api/login', async (req, res) => {
       } 
     });
   } catch (error) {
-    res.status(500).json({ error: 'Sunucu hatası' });
+    console.error('Login hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Sunucu hatası' 
+    });
   }
 });
 
-// Veri listesi endpoint
-app.get('/api/data', authenticateToken, async (req, res) => {
+// İstatistikler endpoint
+app.get('/api/data/stats', authenticateToken, async (req, res) => {
+  try {
+    // Genel istatistikler
+    const totalSubs = await getQuery('SELECT COUNT(*) as count FROM manychat_data');
+    const totalCalled = await getQuery("SELECT COUNT(*) as count FROM manychat_data WHERE status = 'ARANDI'");
+    
+    // Bugünkü istatistikler
+    const today = new Date().toISOString().split('T')[0];
+    const newToday = await getQuery(
+      'SELECT COUNT(*) as count FROM manychat_data WHERE DATE(created_at) = ?', 
+      [today]
+    );
+    const calledToday = await getQuery(
+      "SELECT COUNT(*) as count FROM manychat_data WHERE status = 'ARANDI' AND DATE(updated_at) = ?", 
+      [today]
+    );
+
+    // Kullanıcı istatistikleri (bugün)
+    const userStatsToday = await allQuery(`
+      SELECT u.username, COUNT(*) as call_count_today
+      FROM status_logs sl
+      JOIN users u ON sl.user_id = u.id
+      WHERE DATE(sl.changed_at) = ? AND sl.new_status = 'ARANDI'
+      GROUP BY u.id, u.username
+      ORDER BY call_count_today DESC
+    `, [today]);
+
+    // Kullanıcı istatistikleri (genel)
+    const userStatsTotal = await allQuery(`
+      SELECT u.username, COUNT(*) as call_count_total
+      FROM status_logs sl
+      JOIN users u ON sl.user_id = u.id
+      WHERE sl.new_status = 'ARANDI'
+      GROUP BY u.id, u.username
+      ORDER BY call_count_total DESC
+    `);
+
+    const stats = {
+      totalSubscribers: totalSubs.count,
+      totalCalled: totalCalled.count,
+      callRate: totalSubs.count > 0 ? Math.round((totalCalled.count / totalSubs.count) * 100) : 0,
+      newToday: newToday.count,
+      calledToday: calledToday.count,
+      todayCallRate: newToday.count > 0 ? Math.round((calledToday.count / newToday.count) * 100) : 0,
+      userStatsToday,
+      userStatsTotal
+    };
+
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('İstatistik hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'İstatistikler alınamadı' 
+    });
+  }
+});
+
+// Subscriber listesi endpoint
+app.get('/api/data/subscribers', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
     
     const search = req.query.search || '';
@@ -102,7 +179,7 @@ app.get('/api/data', authenticateToken, async (req, res) => {
     let params = [];
     
     if (search) {
-      whereClause += ' WHERE (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?)';
+      whereClause += ' WHERE (first_name LIKE ? OR last_name LIKE ? OR whatsapp_phone LIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
     
@@ -121,21 +198,26 @@ app.get('/api/data', authenticateToken, async (req, res) => {
     ]);
     
     res.json({
-      data,
+      success: true,
+      data: data,
       pagination: {
         page,
         limit,
         total: totalResult.total,
-        pages: Math.ceil(totalResult.total / limit)
+        totalPages: Math.ceil(totalResult.total / limit)
       }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Veri alınamadı' });
+    console.error('Subscriber listesi hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Veriler alınamadı' 
+    });
   }
 });
 
 // Durum güncelleme endpoint - Rate limiting uygulanmış
-app.put('/api/data/:id/status', authenticateToken, searchStatusRateLimit, async (req, res) => {
+app.put('/api/data/subscribers/:id/status', authenticateToken, searchStatusRateLimit, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -143,7 +225,10 @@ app.put('/api/data/:id/status', authenticateToken, searchStatusRateLimit, async 
     // Önce eski durumu al
     const currentData = await getQuery('SELECT status FROM manychat_data WHERE id = ?', [id]);
     if (!currentData) {
-      return res.status(404).json({ error: 'Kayıt bulunamadı' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Kayıt bulunamadı' 
+      });
     }
     
     // Durumu güncelle
@@ -158,36 +243,56 @@ app.put('/api/data/:id/status', authenticateToken, searchStatusRateLimit, async 
       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
     `, [id, req.user.id, currentData.status, status]);
     
-    res.json({ message: 'Durum güncellendi' });
+    res.json({ 
+      success: true, 
+      message: 'Durum güncellendi' 
+    });
   } catch (error) {
     console.error('Durum güncelleme hatası:', error);
-    res.status(500).json({ error: 'Durum güncellenemedi' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Durum güncellenemedi' 
+    });
   }
 });
 
 // Manuel veri çekme endpoint - Rate limiting uygulanmış
-app.post('/api/manual-fetch', authenticateToken, manualFetchRateLimit, async (req, res) => {
+app.post('/api/fetch-data', authenticateToken, manualFetchRateLimit, async (req, res) => {
   try {
     const fetcher = new ManyChatFetcher();
     const result = await fetcher.manualFetch();
-    res.json(result);
+    res.json({ 
+      success: true, 
+      data: result 
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Manuel veri çekme başarısız' });
+    console.error('Manuel veri çekme hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Manuel veri çekme başarısız' 
+    });
   }
 });
 
 // Admin sadece - kullanıcı yönetimi
-app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/auth/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const users = await allQuery('SELECT id, username, role, created_at FROM users');
-    res.json(users);
+    res.json({ 
+      success: true, 
+      data: users 
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Kullanıcılar alınamadı' });
+    console.error('Kullanıcı listesi hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Kullanıcılar alınamadı' 
+    });
   }
 });
 
 // Admin sadece - kullanıcı oluşturma
-app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/auth/register', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { username, password, role } = req.body;
     
@@ -197,13 +302,52 @@ app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =
       [username, hashedPassword, role]
     );
     
-    res.json({ message: 'Kullanıcı oluşturuldu', id: result.lastID });
+    res.json({ 
+      success: true, 
+      message: 'Kullanıcı oluşturuldu', 
+      id: result.lastID 
+    });
   } catch (error) {
+    console.error('Kullanıcı oluşturma hatası:', error);
     if (error.message.includes('UNIQUE constraint failed')) {
-      res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor' });
+      res.status(400).json({ 
+        success: false, 
+        message: 'Bu kullanıcı adı zaten kullanılıyor' 
+      });
     } else {
-      res.status(500).json({ error: 'Kullanıcı oluşturulamadı' });
+      res.status(500).json({ 
+        success: false, 
+        message: 'Kullanıcı oluşturulamadı' 
+      });
     }
+  }
+});
+
+// Admin sadece - kullanıcı silme
+app.delete('/api/auth/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Admin kullanıcısını silmeyi engelle
+    const user = await getQuery('SELECT username FROM users WHERE id = ?', [id]);
+    if (user?.username === 'admin') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Ana admin kullanıcısı silinemez' 
+      });
+    }
+    
+    await runQuery('DELETE FROM users WHERE id = ?', [id]);
+    res.json({ 
+      success: true, 
+      message: 'Kullanıcı silindi' 
+    });
+  } catch (error) {
+    console.error('Kullanıcı silme hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Kullanıcı silinemedi' 
+    });
   }
 });
 
@@ -218,10 +362,22 @@ app.get('/api/status-logs', authenticateToken, async (req, res) => {
       ORDER BY sl.changed_at DESC
       LIMIT 100
     `);
-    res.json(logs);
+    res.json({ 
+      success: true, 
+      data: logs 
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Loglar alınamadı' });
+    console.error('Status logs hatası:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Loglar alınamadı' 
+    });
   }
+});
+
+// 404 handler - En sonda olmalı
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Sunucu başlatma
@@ -235,6 +391,7 @@ async function startServer() {
     
     app.listen(PORT, () => {
       console.log(`🚀 Sunucu ${PORT} portunda çalışıyor`);
+      console.log(`📱 Uygulama: http://localhost:${PORT}`);
     });
   } catch (error) {
     console.error('Sunucu başlatma hatası:', error);
