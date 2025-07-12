@@ -490,46 +490,6 @@
             justify-content: center;
             gap: 8px;
         }
-
-        /* Rate Limit Bildirim Stilleri */
-        .notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 20px;
-            border-radius: 10px;
-            color: white;
-            font-weight: bold;
-            z-index: 9999;
-            max-width: 400px;
-            word-wrap: break-word;
-            animation: slideIn 0.3s ease;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-        }
-        
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-        
-        @keyframes slideOut {
-            from { transform: translateX(0); opacity: 1; }
-            to { transform: translateX(100%); opacity: 0; }
-        }
-        
-        .notification-success { 
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
-        }
-        .notification-warning { 
-            background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%); 
-            color: #333 !important;
-        }
-        .notification-error { 
-            background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%); 
-        }
-        .notification-info { 
-            background: linear-gradient(135deg, #17a2b8 0%, #6f42c1 100%); 
-        }
         
         @keyframes spin {
             from { transform: rotate(0deg); }
@@ -596,13 +556,6 @@
             .pagination {
                 flex-direction: column;
                 gap: 15px;
-            }
-
-            .notification {
-                top: 10px;
-                right: 10px;
-                left: 10px;
-                max-width: none;
             }
         }
 
@@ -854,10 +807,6 @@
         let authToken = localStorage.getItem('authToken');
         let searchTimeout;
 
-        // Rate Limiting için değişkenler
-        let requestQueue = [];
-        let processingQueue = false;
-
         // Sayfa yüklendiğinde
         document.addEventListener('DOMContentLoaded', function() {
             if (authToken) {
@@ -900,140 +849,556 @@
                         const data = await response.json();
                         
                         if (data.success) {
-                            showNotification(`${role === 'admin' ? 'Admin' : 'Normal'} kullanıcı başarıyla eklendi`, 'success');
+                            showAlert('dashboardAlert', `${role === 'admin' ? 'Admin' : 'Normal'} kullanıcı başarıyla eklendi`, 'success');
                             document.getElementById('newUsername').value = '';
                             document.getElementById('newPassword').value = '';
                             document.getElementById('newUserRole').value = 'user';
                             loadUserList();
                         } else {
-                            showNotification(data.message, 'error');
+                            showAlert('dashboardAlert', data.message, 'error');
                         }
                     } catch (error) {
-                        showNotification('Kullanıcı ekleme hatası', 'error');
+                        showAlert('dashboardAlert', 'Kullanıcı ekleme hatası', 'error');
                     }
                 });
             }
         });
 
-        // RATE LIMITING VE BİLDİRİM FONKSİYONLARI
-        
-        // Bildirim gösterme fonksiyonu
-        function showNotification(message, type = 'info', duration = 5000) {
-            // Mevcut bildirimleri temizle
-            document.querySelectorAll('.notification').forEach(notif => {
-                notif.remove();
-            });
+        // Giriş formu
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
             
-            const notification = document.createElement('div');
-            notification.className = `notification notification-${type}`;
-            notification.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <i class="fas ${getNotificationIcon(type)}"></i>
-                    <span>${message}</span>
-                </div>
-            `;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('loginBtn');
             
-            document.body.appendChild(notification);
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Giriş yapılıyor...';
             
-            // Animasyonla göster
-            setTimeout(() => {
-                notification.style.animation = 'slideIn 0.3s ease forwards';
-            }, 10);
-            
-            // Belirtilen süre sonra kaldır
-            setTimeout(() => {
-                notification.style.animation = 'slideOut 0.3s ease forwards';
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        notification.parentNode.removeChild(notification);
-                    }
-                }, 300);
-            }, duration);
-        }
-
-        // Bildirim iconları
-        function getNotificationIcon(type) {
-            switch(type) {
-                case 'success': return 'fa-check-circle';
-                case 'warning': return 'fa-exclamation-triangle';
-                case 'error': return 'fa-times-circle';
-                default: return 'fa-info-circle';
-            }
-        }
-
-        // Rate limit kontrollü API çağrısı
-        async function makeApiCall(url, options = {}) {
             try {
-                const response = await fetch(url, {
-                    ...options,
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${authToken}`,
-                        ...options.headers
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('username', data.user.username);
+                    localStorage.setItem('userRole', data.user.role);
+                    showDashboard();
+                } else {
+                    showAlert('loginAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('loginAlert', 'Bağlantı hatası', 'error');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Giriş Yap';
+            }
+        });
+
+        // Arama ve filtreleme
+        document.getElementById('searchInput').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                loadSubscribers();
+            }, 500);
+        });
+
+        document.getElementById('statusFilter').addEventListener('change', function() {
+            currentPage = 1;
+            loadSubscribers();
+        });
+
+        // Dashboard göster
+        function showDashboard() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            
+            const username = localStorage.getItem('username');
+            const currentUserRole = localStorage.getItem('userRole');
+            
+            document.getElementById('welcomeUser').textContent = 'Hoşgeldin, ' + username + 
+                (currentUserRole === 'admin' ? ' (Admin)' : '');
+            
+            // Admin değilse Kullanıcı Yönetimi sekmesini gizle
+            const userManagementTab = document.getElementById('userManagementTab');
+            if (currentUserRole !== 'admin') {
+                if (userManagementTab) {
+                    userManagementTab.style.display = 'none';
+                }
+            } else {
+                if (userManagementTab) {
+                    userManagementTab.style.display = 'block';
+                }
+            }
+            
+            // Logout button event listener
+            document.getElementById('logoutBtn').addEventListener('click', logout);
+            
+            loadStats();
+            loadSubscribers();
+            if (currentUserRole === 'admin') {
+                loadUserList();
+            }
+            
+            // 4 dakikada bir otomatik yenileme
+            setInterval(() => {
+                console.log('🔄 Otomatik veri yenileme...');
+                loadStats();
+                loadSubscribers();
+            }, 240000);
+        }
+
+        // Giriş ekranını göster
+        function showLogin() {
+            document.getElementById('loginSection').style.display = 'flex';
+            document.getElementById('dashboard').style.display = 'none';
+        }
+
+        // Çıkış yap
+        function logout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('username');
+            localStorage.removeItem('userRole');
+            authToken = null;
+            showLogin();
+        }
+
+        // Alert göster
+        function showAlert(containerId, message, type) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        // İstatistikleri yükle
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/data/stats', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
                     }
                 });
-
+                
                 const data = await response.json();
+                
+                if (data.success) {
+                    const stats = data.data;
+                    
+                    // Genel istatistikler
+                    document.getElementById('totalSubscribers').textContent = stats.totalSubscribers || 0;
+                    document.getElementById('totalCalled').textContent = stats.totalCalled || 0;
+                    document.getElementById('callRate').textContent = stats.callRate + '%';
+                    document.getElementById('newToday').textContent = stats.newToday || 0;
+                    document.getElementById('calledToday').textContent = stats.calledToday || 0;
+                    document.getElementById('todayCallRate').textContent = stats.todayCallRate + '%';
+                    
+                    // Bugün kullanıcı istatistikleri
+                    const userStatsTodayContainer = document.getElementById('userStatsTodayContainer');
+                    if (stats.userStatsToday && stats.userStatsToday.length > 0) {
+                        userStatsTodayContainer.innerHTML = stats.userStatsToday.map(user => `
+                            <div class="user-stat-item">
+                                <span class="user-stat-name">${user.username}</span>
+                                <span class="user-stat-count">${user.call_count_today}</span>
+                            </div>
+                        `).join('');
+                    } else {
+                        userStatsTodayContainer.innerHTML = '<div class="user-stat-item"><span style="color: #999; font-style: italic;">Bugün henüz arama yapılmamış</span></div>';
+                    }
 
-                // Rate limit kontrolü
-                if (response.status === 429) {
-                    showNotification(data.error || 'Çok fazla istek gönderildi. Lütfen bekleyin.', 'warning', 7000);
-                    return { success: false, rateLimit: true, data };
+                    // Genel kullanıcı istatistikleri
+                    const userStatsTotalContainer = document.getElementById('userStatsTotalContainer');
+                    if (stats.userStatsTotal && stats.userStatsTotal.length > 0) {
+                        userStatsTotalContainer.innerHTML = stats.userStatsTotal.map(user => `
+                            <div class="user-stat-item">
+                                <span class="user-stat-name">${user.username}</span>
+                                <span class="user-stat-count">${user.call_count_total}</span>
+                            </div>
+                        `).join('');
+                    } else {
+                        userStatsTotalContainer.innerHTML = '<div class="user-stat-item"><span style="color: #999; font-style: italic;">Henüz arama yapılmamış</span></div>';
+                    }
                 }
-
-                if (!response.ok) {
-                    throw new Error(data.error || `HTTP ${response.status}`);
-                }
-
-                return { success: true, data };
-
             } catch (error) {
-                console.error('API çağrısı hatası:', error);
-                showNotification(error.message || 'Bir hata oluştu', 'error');
-                return { success: false, error: error.message };
+                console.error('İstatistik yükleme hatası:', error);
             }
         }
 
-        // Status değiştirme fonksiyonu - Rate limiting korumalı
+        // Kullanıcı listesini yükle
+        async function loadUserList() {
+            if (localStorage.getItem('userRole') !== 'admin') return;
+            
+            try {
+                const response = await fetch('/api/auth/users', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const userListContainer = document.getElementById('userListContainer');
+                    userListContainer.innerHTML = data.data.map(user => `
+                        <div class="user-stat-item">
+                            <span class="user-stat-name">
+                                ${user.username} 
+                                <small style="color: #999;">(${user.role === 'admin' ? 'Admin' : 'Kullanıcı'})</small>
+                            </span>
+                            <button class="btn-danger delete-user-btn" 
+                                    style="padding: 4px 8px; font-size: 12px;" 
+                                    data-user-id="${user.id}" 
+                                    data-username="${user.username}"
+                                    ${user.username === 'admin' ? 'disabled title="Ana admin silinemez"' : ''}>
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `).join('');
+                    
+                    // Silme butonlarına event listener ekle
+                    document.querySelectorAll('.delete-user-btn').forEach(button => {
+                        if (!button.disabled) {
+                            button.addEventListener('click', function() {
+                                const userId = this.getAttribute('data-user-id');
+                                const username = this.getAttribute('data-username');
+                                deleteUser(userId, username);
+                            });
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Kullanıcı listesi yükleme hatası:', error);
+            }
+        }
+
+        // Kullanıcı sil
+        async function deleteUser(userId, username) {
+            if (!confirm(`${username} kullanıcısını silmek istediğinizden emin misiniz?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/auth/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('dashboardAlert', data.message, 'success');
+                    loadUserList();
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('dashboardAlert', 'Kullanıcı silme hatası: ' + error.message, 'error');
+            }
+        }
+
+        // Aboneleri yükle
+        async function loadSubscribers() {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            
+            try {
+                const search = document.getElementById('searchInput').value;
+                const status = document.getElementById('statusFilter').value;
+                
+                const params = new URLSearchParams({
+                    page: currentPage,
+                    limit: itemsPerPage,
+                    search: search,
+                    status: status
+                });
+                
+                const response = await fetch(`/api/data/subscribers?${params}`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderSubscribers(data.data);
+                    renderPagination(data.pagination);
+                    totalPages = data.pagination.totalPages;
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('dashboardAlert', 'Veri yükleme hatası', 'error');
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Aboneleri tabloya çiz
+        function renderSubscribers(subscribers) {
+            const tbody = document.getElementById('dataTableBody');
+            tbody.innerHTML = '';
+            
+            subscribers.forEach(subscriber => {
+                const row = document.createElement('tr');
+                row.className = `row-${subscriber.status.toLowerCase()}`;
+                
+                row.innerHTML = `
+                    <td>${(subscriber.first_name || '') + ' ' + (subscriber.last_name || '')}</td>
+                    <td>${subscriber.whatsapp_phone || '-'}</td>
+                    <td>${subscriber.otel_adi || '-'}</td>
+                    <td>${subscriber.conditions || '-'}</td>
+                    <td>${subscriber.cevap_fiyat1 || '-'}</td>
+                    <td>
+                        <span class="status-badge status-${subscriber.status.toLowerCase()}" 
+                              data-id="${subscriber.id}" data-status="${subscriber.status}">
+                            ${subscriber.status}
+                        </span>
+                    </td>
+                    <td class="call-history">${subscriber.status_history || '-'}</td>
+                    <td>${subscriber.last_interaction_turkey || subscriber.updated_at_turkey || '-'}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            // Tüm status badge'lere event listener ekle
+            document.querySelectorAll('.status-badge').forEach(badge => {
+                badge.addEventListener('click', function() {
+                    const id = this.getAttribute('data-id');
+                    const currentStatus = this.getAttribute('data-status');
+                    toggleStatus(id, currentStatus);
+                });
+            });
+        }
+
+        // Sayfalama butonları - Event listener'lı versiyon
+        function renderPagination(pagination) {
+            const paginationContainer = document.getElementById('pagination');
+            paginationContainer.innerHTML = '';
+            
+            // Sol navigasyon butonları
+            const navButtons = document.createElement('div');
+            navButtons.className = 'nav-buttons';
+            
+            // İlk sayfa
+            const firstBtn = document.createElement('button');
+            firstBtn.innerHTML = '<i class="fas fa-angle-double-left"></i> İlk';
+            firstBtn.disabled = pagination.page === 1;
+            firstBtn.addEventListener('click', () => {
+                if (pagination.page > 1) {
+                    currentPage = 1;
+                    loadSubscribers();
+                }
+            });
+            navButtons.appendChild(firstBtn);
+            
+            // Önceki sayfa
+            const prevBtn = document.createElement('button');
+            prevBtn.innerHTML = '<i class="fas fa-angle-left"></i> Önceki';
+            prevBtn.disabled = pagination.page === 1;
+            prevBtn.addEventListener('click', () => {
+                if (pagination.page > 1) {
+                    currentPage = pagination.page - 1;
+                    loadSubscribers();
+                }
+            });
+            navButtons.appendChild(prevBtn);
+            
+            paginationContainer.appendChild(navButtons);
+            
+            // Sayfa numaraları
+            const pageNumbers = document.createElement('div');
+            pageNumbers.className = 'page-numbers';
+            
+            const startPage = Math.max(1, pagination.page - 2);
+            const endPage = Math.min(pagination.totalPages, pagination.page + 2);
+            
+            // İlk sayfa ve ... gösterimi
+            if (startPage > 1) {
+                const page1Btn = document.createElement('button');
+                page1Btn.textContent = '1';
+                page1Btn.addEventListener('click', () => {
+                    currentPage = 1;
+                    loadSubscribers();
+                });
+                pageNumbers.appendChild(page1Btn);
+                
+                if (startPage > 2) {
+                    const dotsBtn = document.createElement('button');
+                    dotsBtn.textContent = '...';
+                    dotsBtn.disabled = true;
+                    pageNumbers.appendChild(dotsBtn);
+                }
+            }
+            
+            // Mevcut sayfa civarındaki sayfalar
+            for (let i = startPage; i <= endPage; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.textContent = i;
+                pageBtn.className = i === pagination.page ? 'active' : '';
+                pageBtn.addEventListener('click', () => {
+                    currentPage = i;
+                    loadSubscribers();
+                });
+                pageNumbers.appendChild(pageBtn);
+            }
+            
+            // Son sayfa ve ... gösterimi
+            if (endPage < pagination.totalPages) {
+                if (endPage < pagination.totalPages - 1) {
+                    const dotsBtn = document.createElement('button');
+                    dotsBtn.textContent = '...';
+                    dotsBtn.disabled = true;
+                    pageNumbers.appendChild(dotsBtn);
+                }
+                
+                const lastPageBtn = document.createElement('button');
+                lastPageBtn.textContent = pagination.totalPages;
+                lastPageBtn.addEventListener('click', () => {
+                    currentPage = pagination.totalPages;
+                    loadSubscribers();
+                });
+                pageNumbers.appendChild(lastPageBtn);
+            }
+            
+            paginationContainer.appendChild(pageNumbers);
+            
+            // Sağ navigasyon butonları
+            const rightNavButtons = document.createElement('div');
+            rightNavButtons.className = 'nav-buttons';
+            
+            // Sonraki sayfa
+            const nextBtn = document.createElement('button');
+            nextBtn.innerHTML = 'Sonraki <i class="fas fa-angle-right"></i>';
+            nextBtn.disabled = pagination.page === pagination.totalPages;
+            nextBtn.addEventListener('click', () => {
+                if (pagination.page < pagination.totalPages) {
+                    currentPage = pagination.page + 1;
+                    loadSubscribers();
+                }
+            });
+            rightNavButtons.appendChild(nextBtn);
+            
+            // Son sayfa
+            const lastBtn = document.createElement('button');
+            lastBtn.innerHTML = 'Son <i class="fas fa-angle-double-right"></i>';
+            lastBtn.disabled = pagination.page === pagination.totalPages;
+            lastBtn.addEventListener('click', () => {
+                currentPage = pagination.totalPages;
+                loadSubscribers();
+            });
+            rightNavButtons.appendChild(lastBtn);
+            
+            paginationContainer.appendChild(rightNavButtons);
+            
+            // Sayfa bilgisi
+            const pageInfo = document.createElement('div');
+            pageInfo.style.cssText = 'font-size: 14px; color: #666; margin-top: 10px; text-align: center;';
+            pageInfo.textContent = `Sayfa ${pagination.page} / ${pagination.totalPages} (Toplam ${pagination.total} kayıt)`;
+            paginationContainer.appendChild(pageInfo);
+        }
+
+        // Status değiştir
         async function toggleStatus(id, currentStatus) {
             const newStatus = currentStatus === 'ARANDI' ? 'ARANMADI' : 'ARANDI';
             
-            // Status badge'i geçici olarak devre dışı bırak
-            const statusBadge = document.querySelector(`[data-id="${id}"]`);
-            if (statusBadge) {
-                statusBadge.style.pointerEvents = 'none';
-                statusBadge.style.opacity = '0.6';
-                statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin"></i> İşleniyor...';
-            }
-
-            const result = await makeApiCall(`/api/data/subscribers/${id}/status`, {
-                method: 'PUT',
-                body: JSON.stringify({ status: newStatus })
-            });
-
-            // Status badge'i tekrar aktif et
-            if (statusBadge) {
-                statusBadge.style.pointerEvents = 'auto';
-                statusBadge.style.opacity = '1';
-            }
-
-            if (result.success) {
-                loadSubscribers();
-                loadStats();
-                showNotification('Durum başarıyla güncellendi! 🎉', 'success');
-            } else if (result.rateLimit) {
-                // Rate limit durumunda badge'i eski haline döndür
-                if (statusBadge) {
-                    statusBadge.textContent = currentStatus;
-                    statusBadge.className = `status-badge status-${currentStatus.toLowerCase()}`;
+            try {
+                const response = await fetch(`/api/data/subscribers/${id}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    loadSubscribers();
+                    loadStats();
+                    showAlert('dashboardAlert', 'Durum başarıyla güncellendi', 'success');
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
                 }
-                // Rate limit mesajı zaten showNotification ile gösterildi
-            } else {
-                // Genel hata durumunda badge'i eski haline döndür
-                if (statusBadge) {
-                    statusBadge.textContent = currentStatus;
-                    statusBadge.className = `status-badge status-${currentStatus.toLowerCase()}`;
-                }
-                showNotification('Durum güncellenemedi', 'error');
+            } catch (error) {
+                showAlert('dashboardAlert', 'Durum güncelleme hatası', 'error');
             }
         }
+
+        // Manuel veri çekme
+        async function fetchDataManually() {
+            const btn = document.getElementById('fetchDataBtn');
+            const originalText = btn.innerHTML;
+            
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Çekiliyor...';
+            
+            try {
+                const response = await fetch('/api/fetch-data', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('dashboardAlert', 
+                        `Veri çekme tamamlandı: ${data.data.newCount} yeni, ${data.data.updatedCount} güncellendi`, 
+                        'success'
+                    );
+                    loadStats();
+                    loadSubscribers();
+                } else {
+                    showAlert('dashboardAlert', data.message, 'error');
+                }
+            } catch (error) {
+                showAlert('dashboardAlert', 'Veri çekme hatası: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        // Sekme değiştirme
+        function showTab(tabName, clickedElement) {
+            // Tüm tab content'leri gizle
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Tüm tab button'lardan active'i kaldır
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Seçilen tab'ı göster
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            
+            // Seçilen button'ı active yap
+            if (clickedElement) {
+                clickedElement.classList.add('active');
+            }
+            
+            // Kullanıcı yönetimi sekmesine geçildiğinde kullanıcı listesini yükle
+            if (tabName === 'users' && localStorage.getItem('userRole') === 'admin') {
+                loadUserList();
+            }
+        }
+    </script>
+</body>
+</html>
