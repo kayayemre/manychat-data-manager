@@ -1,241 +1,243 @@
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 require('dotenv').config();
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
-const { createTables, testConnection, runQuery, allQuery, getQuery } = require("./config/database");
 
-const myApp = express();
-const serverPort = process.env.PORT || 3000;
+// Rate limiting middleware'leri import et
+const {
+  generalRateLimit,
+  searchStatusRateLimit,
+  manualFetchRateLimit
+} = require('./middleware/rateLimiter');
 
-// ManyChat veri çekme instance
-let manyChatFetcher;
+const { initDatabase, runQuery, getQuery, allQuery } = require('./config/database');
+const ManyChatFetcher = require('./fetchManyChat');
 
-// Auto Migration Function
-async function autoMigrate() {
-  try {
-    console.log('🔄 Otomatik migration kontrol ediliyor...');
-    
-    const tableInfo = await allQuery("PRAGMA table_info(users)");
-    const hasRoleColumn = tableInfo.some(column => column.name === 'role');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-    if (!hasRoleColumn && tableInfo.length > 0) {
-      console.log('📝 Production migration başlatılıyor...');
-      
-      await runQuery(`
-        CREATE TABLE users_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          role TEXT DEFAULT 'user' CHECK(role IN ('admin', 'user')),
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
+// Middleware'ler
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
 
-      const oldUsers = await allQuery("SELECT * FROM users");
-      
-      for (const user of oldUsers) {
-        const role = user.id === 1 ? 'admin' : 'user';
-        await runQuery(`
-          INSERT INTO users_new (id, username, password, role, created_at)
-          VALUES (?, ?, ?, ?, ?)
-        `, [user.id, user.username, user.password, role, user.created_at]);
-      }
+// Genel rate limiting (tüm istekler için)
+app.use(generalRateLimit);
 
-      await runQuery("DROP TABLE users");
-      await runQuery("ALTER TABLE users_new RENAME TO users");
-      
-      console.log('✅ Users tablosu otomatik güncellendi');
+// JWT token doğrulama middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Token gerekli' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Geçersiz token' });
     }
+    req.user = user;
+    next();
+  });
+};
 
-    const tablesResult = await allQuery(`
-      SELECT name FROM sqlite_master 
-      WHERE type='table' AND name='status_logs'
-    `);
-
-    if (tablesResult.length === 0) {
-      await runQuery(`
-        CREATE TABLE status_logs (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          subscriber_id INTEGER NOT NULL,
-          user_id INTEGER NOT NULL,
-          old_status TEXT,
-          new_status TEXT,
-          changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (subscriber_id) REFERENCES manychat_data(id),
-          FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-      `);
-      console.log('✅ Status logs tablosu otomatik oluşturuldu');
-    }
-
-    console.log('✅ Otomatik migration tamamlandı');
-    
-  } catch (error) {
-    console.error('❌ Otomatik migration hatası:', error);
-    throw error;
+// Admin yetki kontrolü
+const requireAdmin = (req, res, next) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Bu işlem için admin yetkisi gerekli' });
   }
-}
-
-// Security middleware
-myApp.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      scriptSrcAttr: ["'unsafe-inline'"],
-      fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
-    },
-  },
-}));
-
-// CORS middleware
-myApp.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-domain.com'] 
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true
-}));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: {
-    error: "Çok fazla istek gönderildi, lütfen 15 dakika sonra tekrar deneyin."
-  }
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: {
-    error: "Çok fazla giriş denemesi, lütfen 15 dakika sonra tekrar deneyin."
-  }
-});
-
-myApp.use(limiter);
-myApp.use('/api/auth/login', authLimiter);
-
-// Body parser middleware
-myApp.use(express.json({ limit: '10mb' }));
-myApp.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Statik dosyalar
-myApp.use(express.static("public"));
+  next();
+};
 
 // Routes
-const authRoutes = require("./routes/auth");
-const dataRoutes = require("./routes/data");
 
-myApp.use("/api/auth", authRoutes);
-myApp.use("/api/data", dataRoutes);
-
-// Ana route
-myApp.get("/", (req, res) => {
-  res.sendFile(__dirname + "/public/index.html");
-});
-
-// Manuel veri çekme endpoint
-myApp.get("/api/fetch-data", async (req, res) => {
+// Login endpoint
+app.post('/api/login', async (req, res) => {
   try {
-    if (!manyChatFetcher) {
-      return res.status(500).json({ 
-        success: false, 
-        message: "Veri çekme sistemi başlatılmamış" 
-      });
-    }
+    const { username, password } = req.body;
     
-    const result = await manyChatFetcher.manualFetch();
+    const user = await getQuery('SELECT * FROM users WHERE username = ?', [username]);
+    if (!user) {
+      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.json({ 
-      success: true, 
-      message: "Veri çekme tamamlandı",
-      data: result
+      token, 
+      user: { 
+        id: user.id, 
+        username: user.username, 
+        role: user.role 
+      } 
     });
   } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Sunucu hatası' });
   }
 });
 
-// Health check endpoint
-myApp.get("/health", (req, res) => {
-  res.json({ 
-    status: "OK", 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    manychat_fetcher: manyChatFetcher ? "Active" : "Inactive"
-  });
-});
-
-// 404 handler
-myApp.use((req, res) => {
-  res.status(404).json({ 
-    success: false, 
-    message: "Endpoint bulunamadı" 
-  });
-});
-
-// Error handler
-myApp.use((err, req, res, next) => {
-  console.error("Server error:", err);
-  res.status(500).json({ 
-    success: false, 
-    message: process.env.NODE_ENV === 'production' 
-      ? "Sunucu hatası" 
-      : err.message 
-  });
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM alındı, sunucu kapatılıyor...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT alındı, sunucu kapatılıyor...');
-  process.exit(0);
-});
-
-// Sunucuyu başlat
-async function startServer() {
+// Veri listesi endpoint
+app.get('/api/data', authenticateToken, async (req, res) => {
   try {
-    await testConnection();
-    await autoMigrate();
-    await createTables();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
     
-    myApp.listen(serverPort, () => {
-      console.log(`✅ Sunucu ${serverPort} portunda çalışıyor`);
-      console.log(`🌐 URL: http://localhost:${serverPort}`);
-      console.log(`📊 Health Check: http://localhost:${serverPort}/health`);
-      console.log(`🔒 Güvenlik middleware'leri aktif`);
-      
-      // ManyChat veri çekme sistemini başlat
-      if (process.env.MANYCHAT_API_TOKEN) {
-        try {
-          const ManyChatFetcher = require('./fetchManyChat');
-          manyChatFetcher = new ManyChatFetcher();
-          manyChatFetcher.start();
-          console.log(`🔄 ManyChat veri çekme sistemi başlatıldı`);
-        } catch (error) {
-          console.log(`⚠️  ManyChat fetcher yüklenemedi:`, error.message);
-        }
-      } else {
-        console.log(`⚠️  ManyChat API token bulunamadı, veri çekme devre dışı`);
+    const search = req.query.search || '';
+    const status = req.query.status || '';
+    
+    let whereClause = '';
+    let params = [];
+    
+    if (search) {
+      whereClause += ' WHERE (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    
+    if (status) {
+      whereClause += search ? ' AND' : ' WHERE';
+      whereClause += ' status = ?';
+      params.push(status);
+    }
+    
+    const countQuery = `SELECT COUNT(*) as total FROM manychat_data${whereClause}`;
+    const dataQuery = `SELECT * FROM manychat_data${whereClause} ORDER BY updated_at DESC LIMIT ? OFFSET ?`;
+    
+    const [totalResult, data] = await Promise.all([
+      getQuery(countQuery, params),
+      allQuery(dataQuery, [...params, limit, offset])
+    ]);
+    
+    res.json({
+      data,
+      pagination: {
+        page,
+        limit,
+        total: totalResult.total,
+        pages: Math.ceil(totalResult.total / limit)
       }
     });
-    
   } catch (error) {
-    console.error('❌ Sunucu başlatma hatası:', error);
+    res.status(500).json({ error: 'Veri alınamadı' });
+  }
+});
+
+// Durum güncelleme endpoint - Rate limiting uygulanmış
+app.put('/api/data/:id/status', authenticateToken, searchStatusRateLimit, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    // Önce eski durumu al
+    const currentData = await getQuery('SELECT status FROM manychat_data WHERE id = ?', [id]);
+    if (!currentData) {
+      return res.status(404).json({ error: 'Kayıt bulunamadı' });
+    }
+    
+    // Durumu güncelle
+    await runQuery(
+      'UPDATE manychat_data SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [status, id]
+    );
+    
+    // Status log kaydet
+    await runQuery(`
+      INSERT INTO status_logs (subscriber_id, user_id, old_status, new_status, changed_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [id, req.user.id, currentData.status, status]);
+    
+    res.json({ message: 'Durum güncellendi' });
+  } catch (error) {
+    console.error('Durum güncelleme hatası:', error);
+    res.status(500).json({ error: 'Durum güncellenemedi' });
+  }
+});
+
+// Manuel veri çekme endpoint - Rate limiting uygulanmış
+app.post('/api/manual-fetch', authenticateToken, manualFetchRateLimit, async (req, res) => {
+  try {
+    const fetcher = new ManyChatFetcher();
+    const result = await fetcher.manualFetch();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Manuel veri çekme başarısız' });
+  }
+});
+
+// Admin sadece - kullanıcı yönetimi
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const users = await allQuery('SELECT id, username, role, created_at FROM users');
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Kullanıcılar alınamadı' });
+  }
+});
+
+// Admin sadece - kullanıcı oluşturma
+app.post('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { username, password, role } = req.body;
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await runQuery(
+      'INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
+      [username, hashedPassword, role]
+    );
+    
+    res.json({ message: 'Kullanıcı oluşturuldu', id: result.lastID });
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      res.status(400).json({ error: 'Bu kullanıcı adı zaten kullanılıyor' });
+    } else {
+      res.status(500).json({ error: 'Kullanıcı oluşturulamadı' });
+    }
+  }
+});
+
+// Status logs endpoint
+app.get('/api/status-logs', authenticateToken, async (req, res) => {
+  try {
+    const logs = await allQuery(`
+      SELECT sl.*, u.username, md.first_name, md.last_name
+      FROM status_logs sl
+      JOIN users u ON sl.user_id = u.id
+      JOIN manychat_data md ON sl.subscriber_id = md.id
+      ORDER BY sl.changed_at DESC
+      LIMIT 100
+    `);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: 'Loglar alınamadı' });
+  }
+});
+
+// Sunucu başlatma
+async function startServer() {
+  try {
+    await initDatabase();
+    
+    // ManyChat veri çekme işlemini başlat
+    const fetcher = new ManyChatFetcher();
+    fetcher.start();
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 Sunucu ${PORT} portunda çalışıyor`);
+    });
+  } catch (error) {
+    console.error('Sunucu başlatma hatası:', error);
     process.exit(1);
   }
 }

@@ -59,8 +59,8 @@ async function runMigration() {
     console.log('🔄 Migration başlatılıyor...');
 
     // 1. Users tablosunda role kolonu var mı kontrol et
-    const tableInfo = await allQuery("PRAGMA table_info(users)");
-    const hasRoleColumn = tableInfo.some(column => column.name === 'role');
+    const usersTableInfo = await allQuery("PRAGMA table_info(users)");
+    const hasRoleColumn = usersTableInfo.some(column => column.name === 'role');
 
     if (!hasRoleColumn) {
       console.log('📝 Users tablosuna role kolonu ekleniyor...');
@@ -98,7 +98,24 @@ async function runMigration() {
       console.log('✅ Users tablosunda role kolonu zaten mevcut');
     }
 
-    // 2. Status logs tablosunu kontrol et ve oluştur
+    // 2. ManyChat data tablosunda status kolonu var mı kontrol et
+    const manyChatTableInfo = await allQuery("PRAGMA table_info(manychat_data)");
+    const hasStatusColumn = manyChatTableInfo.some(column => column.name === 'status');
+
+    if (!hasStatusColumn) {
+      console.log('📝 ManyChat data tablosuna status kolonu ekleniyor...');
+      
+      await runQuery(`
+        ALTER TABLE manychat_data 
+        ADD COLUMN status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'called', 'not_interested', 'interested', 'booked'))
+      `);
+      
+      console.log('✅ ManyChat data tablosuna status kolonu eklendi');
+    } else {
+      console.log('✅ ManyChat data tablosunda status kolonu zaten mevcut');
+    }
+
+    // 3. Status logs tablosunu kontrol et ve oluştur
     const tablesResult = await allQuery(`
       SELECT name FROM sqlite_master 
       WHERE type='table' AND name='status_logs'
@@ -125,7 +142,7 @@ async function runMigration() {
       console.log('✅ Status logs tablosu zaten mevcut');
     }
 
-    // 3. Admin kullanıcı kontrolü
+    // 4. Admin kullanıcı kontrolü
     const adminUser = await getQuery("SELECT * FROM users WHERE username = 'admin'");
     
     if (!adminUser) {
@@ -146,7 +163,7 @@ async function runMigration() {
       console.log('✅ Admin kullanıcısının rolü güncellendi');
     }
 
-    // 4. Trigger'ları kontrol et ve oluştur
+    // 5. Trigger'ları kontrol et ve oluştur
     const triggers = await allQuery(`
       SELECT name FROM sqlite_master 
       WHERE type='trigger' AND name='update_manychat_data_updated_at'
